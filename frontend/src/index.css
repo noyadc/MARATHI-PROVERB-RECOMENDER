@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: Inter, system-ui, sans-serif;
+  background: #f8fafc;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.8s ease-out both;
+}
