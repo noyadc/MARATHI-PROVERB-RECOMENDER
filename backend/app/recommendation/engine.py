@@ -8,7 +8,9 @@ from sentence_transformers import SentenceTransformer
 
 BASE_DIR = Path(__file__).resolve().parents[3]
 PROVERB_FILE = BASE_DIR / 'dataset' / 'marathi_proverbs_200.csv'
-EMBEDDINGS_FILE = Path(__file__).resolve().parents[2] / 'embeddings' / 'proverb_embeddings.npy'
+EMBEDDINGS_DIR = Path(__file__).resolve().parents[2] / 'embeddings'
+PROVERB_EMBEDDINGS_FILE = EMBEDDINGS_DIR / 'proverb_embeddings.npy'
+SITUATION_EMBEDDINGS_FILE = EMBEDDINGS_DIR / 'situation_embeddings.npy'
 MODEL_NAME = 'sentence-transformers/LaBSE'
 
 class RecommendationEngine:
@@ -16,23 +18,23 @@ class RecommendationEngine:
         self.model = SentenceTransformer(MODEL_NAME)
         self.proverbs = self._load_proverbs()
         self.lemma_dict = self._load_lemma_dictionary()
-        self.embeddings = self._load_or_build_embeddings()
+        self.proverb_embeddings, self.situation_embeddings = self._load_or_build_embeddings()
 
     def _load_proverbs(self):
         proverbs = []
-        with open(PROVERB_FILE, 'r', encoding='utf-8', newline='') as f:
+        with open(PROVERB_FILE, 'r', encoding='utf-8-sig', newline='') as f:
             reader = csv.DictReader(f)
             for row in reader:
                 keywords = row.get('Keywords', '') or row.get('keywords', '') or ''
                 if isinstance(keywords, str):
-                    keywords = [kw.strip().strip('"') for kw in keywords.split(',') if kw.strip()]
+                    keywords = [kw.strip().strip('"').strip("'") for kw in keywords.split(',') if kw.strip()]
                 proverbs.append({
                     'id': (row.get('ID') or row.get('Id') or row.get('id') or '').strip(),
                     'proverb': (row.get('Proverb') or row.get('proverb') or '').strip(),
                     'meaning': (row.get('Meaning') or row.get('meaning') or '').strip(),
                     'situation': (row.get('Situation') or row.get('situation') or '').strip(),
                     'category': (row.get('Category') or row.get('category') or '').strip(),
-                    'keywords': keywords,
+                    'keywords': [kw for kw in keywords if kw],
                     'emotion': (row.get('Emotion') or row.get('emotion') or '').strip(),
                 })
         return proverbs
@@ -48,11 +50,25 @@ class RecommendationEngine:
         return {}
 
     def _tokenize(self, text: str):
+        import re
         if not text:
             return []
         # simple tokenizer splitting on whitespace and punctuation
-        tokens = [t for t in re.split(r"[\s,\.|;:\(\)\"'\u200c]+", text) if t]
+        tokens = [t for t in re.split(r"[\s,\.\|;:\(\)\"'\u200c]+", text) if t]
         return tokens
+
+    def _normalized_tokens(self, text: str):
+        return [t.lower() for t in self._tokenize(text)] if text else []
+
+    def _normalized_text(self, text: str):
+        return ' '.join(self._normalized_tokens(text))
+
+    def _find_exact_situation_match(self, sentence: str):
+        normalized = self._normalized_text(sentence)
+        for idx, item in enumerate(self.proverbs):
+            if normalized and self._normalized_text(item.get('situation', '')) == normalized:
+                return idx
+        return None
 
     def _lemmatize(self, tokens):
         lemmas = []
@@ -91,19 +107,32 @@ class RecommendationEngine:
         return tags
 
     def _load_or_build_embeddings(self):
-        if EMBEDDINGS_FILE.exists():
-            return np.load(EMBEDDINGS_FILE)
+        if PROVERB_EMBEDDINGS_FILE.exists() and SITUATION_EMBEDDINGS_FILE.exists():
+            proverb_embeddings = np.load(PROVERB_EMBEDDINGS_FILE)
+            situation_embeddings = np.load(SITUATION_EMBEDDINGS_FILE)
+            return proverb_embeddings, situation_embeddings
 
-        texts = [item['proverb'] for item in self.proverbs]
-        embeddings = self.model.encode(texts, convert_to_numpy=True)
-        EMBEDDINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        np.save(EMBEDDINGS_FILE, embeddings)
-        return embeddings
+        proverb_texts = [item['proverb'] for item in self.proverbs]
+        situation_texts = [item['situation'] or item['proverb'] for item in self.proverbs]
+        proverb_embeddings = self.model.encode(proverb_texts, convert_to_numpy=True)
+        situation_embeddings = self.model.encode(situation_texts, convert_to_numpy=True)
+        EMBEDDINGS_DIR.mkdir(parents=True, exist_ok=True)
+        np.save(PROVERB_EMBEDDINGS_FILE, proverb_embeddings)
+        np.save(SITUATION_EMBEDDINGS_FILE, situation_embeddings)
+        return proverb_embeddings, situation_embeddings
 
     def recommend(self, sentence, top_k=5):
+        exact_idx = self._find_exact_situation_match(sentence)
         query_embedding = self.model.encode([sentence], convert_to_numpy=True)
-        scores = cosine_similarity(query_embedding, self.embeddings)[0]
-        best_idxs = np.argsort(scores)[::-1][:top_k]
+        scores = cosine_similarity(query_embedding, self.situation_embeddings)[0]
+        best_idxs = np.argsort(scores)[::-1].tolist()
+
+        if exact_idx is not None:
+            if exact_idx in best_idxs:
+                best_idxs.remove(exact_idx)
+            best_idxs = [exact_idx] + best_idxs
+
+        best_idxs = best_idxs[:top_k]
         results = []
         for idx in best_idxs:
             item = self.proverbs[idx]
@@ -129,7 +158,7 @@ class RecommendationEngine:
                 'category': item['category'],
                 'keywords': item['keywords'],
                 'emotion': item['emotion'],
-                'confidence': float(scores[idx] * 100),
+                'confidence': float(100.0 if idx == exact_idx else scores[idx] * 100),
                 'preprocessing': {
                     'tokens': tokens,
                     'lemmas': lemmas,

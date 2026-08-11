@@ -31,3 +31,15 @@ def test_recommend_api_rejects_empty_sentence():
     response = client.post('/api/recommend', json={'sentence': ''})
     assert response.status_code == 400
     assert response.json()['detail'] == 'Sentence is required.'
+
+
+def test_recommend_api_exact_situation_match():
+    sentence = 'अभ्यास न करता परीक्षेला जाणे'
+    response = client.post('/api/recommend', json={'sentence': sentence})
+    assert response.status_code == 200
+    data = response.json()
+    assert data['proverb'] == 'घाईचे काम शैतानाचे.'
+    assert data['meaning'] == 'कोणतेही काम विचारपूर्वक करावे.'
+    assert data['category'] == 'शहाणपण'
+    assert data['emotion'] == 'इशारा'
+    assert data['top_matches'][0]['proverb'] == 'घाईचे काम शैतानाचे.'
