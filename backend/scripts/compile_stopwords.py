@@ -1,4 +1,4 @@
-"""Generate marathi_stopwords.txt with 400+ Marathi stopwords."""
+"""Standard Marathi stopwords list compiled from Marathi NLP references."""
 from pathlib import Path
 
 STOPWORDS = [

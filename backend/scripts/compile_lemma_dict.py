@@ -1,6 +1,5 @@
 """
-Generate lemma_dictionary.json with 1000+ Marathi lemma mappings.
-Run: python backend/scripts/generate_lemma_dict.py
+Compile lemma_dictionary.json with 1000+ Marathi grammatical root lemma mappings.
 """
 
 import json
